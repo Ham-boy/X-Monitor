@@ -231,7 +231,7 @@ On confirmation, it reads the comments service id from `"FB SMM Settings"` (`smm
 ## Configuration Risks
 
 - Live production still holds the SMMWiz API key as a plain-text `apiKey` field in `Set Comment Service Config` and `Set Likes Service Config`. Since 2026-10-03 the local export has that value replaced by `REDACTED_SMM_API_KEY_MOVE_TO_N8N_CREDENTIAL`, so **do not re-import this export into n8n as-is**: production ordering would break. Staging has already moved the key into an `httpTemplatedCustomAuth` credential (see the staging doc), and promotion is pending. Never copy the key into docs or logs.
-- The X OAuth client ID and client secret are embedded in code nodes in the export. Treat them as sensitive configuration and avoid printing or duplicating them.
+- Since 2026-10-25 the X OAuth client secret is no longer in any node. `Refresh X Token` (and the callback's `Exchange Code For Tokens`) authenticate with the shared n8n Basic Auth credential **Delphi X OAuth Client** (`7YhRjDMkZBG1P1ka`; user = client ID, password = client secret), owned by Tarek's project and shared with Hamdi Said's. Rotating the X keys means editing that one credential. Only the public client ID remains inline, in `Generate X OAuth Link`; update it there only if X issues a new client ID. The PolyJess gateway keeps its own copy in the Vault entry `jess_phase4_gateway_bootstrap_v1` (staging Supabase).
 - `/order_comments`, `/order_likes`, and `hide_replies` have real external side effects. Use staging and pinned tests unless the user explicitly approves live X writes or SMM orders.
 
 ### Order placement must never retry

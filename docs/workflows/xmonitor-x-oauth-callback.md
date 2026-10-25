@@ -35,8 +35,10 @@ Production webhook workflow that completes the X OAuth PKCE flow started by the 
 2. `Parse Callback` rejects provider errors and missing `code` or `state`.
 3. `Get Auth Session` fetches the `X Auth Sessions` row for the callback state.
 4. `Validate Auth Session` rejects missing, expired, or already used sessions.
-5. `Prepare Token Request` prepares Basic auth and redirect URI.
-6. `Exchange Code For Tokens` posts `grant_type=authorization_code`, `code`, `redirect_uri`, and `code_verifier` to X.
+5. `Prepare Token Request` adds the redirect URI. It holds no client ID or secret.
+6. `Exchange Code For Tokens` authenticates with the shared n8n Basic Auth credential
+   **Delphi X OAuth Client** (`7YhRjDMkZBG1P1ka`; user = X client ID, password = client
+   secret; since 2026-10-25) and posts `grant_type=authorization_code`, `code`, `redirect_uri`, and `code_verifier` to X.
 7. `Get Authenticated X User` calls X `/2/users/me`.
 8. `Prepare Account Row` builds the persistent token/account row.
 9. `Upsert X Auth Account` stores access token, refresh token, expiry, scope, username, and Telegram chat.

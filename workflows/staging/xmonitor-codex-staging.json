@@ -2,7 +2,7 @@
   "id": "oLwwjO05IcRjtF8E",
   "name": "XMonitor - Telegram Router Staging",
   "active": true,
-  "activeVersionId": "66db1fd5-59ab-4f65-9373-0a2148658a88",
+  "activeVersionId": "5091422a-7cd6-4c9e-8206-bea3b6b90c68",
   "nodeCount": 155,
   "settings": {
     "executionOrder": "v1",
@@ -2060,7 +2060,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// TODO: Replace these placeholders after import.\nconst clientId = 'Q285bFM0VUJLdlJHTk82aW5YcVE6MTpjaQ';\nconst clientSecret = 'ZAApmo-Z6kzX-fYYyyWjCffziJfRNP8yVURxEdIgyYmKoea3nH';\n\nif (clientId === 'YOUR_X_CLIENT_ID' || clientSecret === 'YOUR_X_CLIENT_SECRET') {\n  throw new Error('Replace YOUR_X_CLIENT_ID and YOUR_X_CLIENT_SECRET before activating this workflow.');\n}\n\nconst auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');\n\nreturn [{\n  json: {\n    ...$json,\n    authorization: `Basic ${auth}`,\n  },\n}];"
+        "jsCode": "// Pass-through. The X OAuth client id and secret are NOT in this node: Refresh X\n// Token authenticates with the shared \"Delphi X OAuth Client\" Basic Auth\n// credential (user = client id, password = client secret), so a key rotation is\n// one credential edit. Kept because Prepare Refreshed Account reads this node.\nreturn $input.all();"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -2075,13 +2075,11 @@
       "parameters": {
         "method": "POST",
         "url": "https://api.x.com/2/oauth2/token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{ $json.authorization }}"
-            },
             {
               "name": "Content-Type",
               "value": "application/x-www-form-urlencoded"
@@ -2111,7 +2109,13 @@
         -1088
       ],
       "id": "fbd68cdf-9f9b-43bb-b218-814e396eb7be",
-      "name": "Refresh X Token"
+      "name": "Refresh X Token",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "7YhRjDMkZBG1P1ka",
+          "name": "Delphi X OAuth Client"
+        }
+      }
     },
     {
       "parameters": {
@@ -6642,6 +6646,6 @@
   "activeVersion": {
     "sameAsDraft": true
   },
-  "versionId": "3f6ac1e9-fd6d-4fd4-b2e3-7bf86e15dbe5",
+  "versionId": "5091422a-7cd6-4c9e-8206-bea3b6b90c68",
   "updatedAt": "2026-10-24T07:51:50.006Z"
 }

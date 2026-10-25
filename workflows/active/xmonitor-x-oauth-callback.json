@@ -158,7 +158,7 @@
         -640
       ],
       "parameters": {
-        "jsCode": "// TODO: Replace these placeholders after import.\nconst clientId = 'Q285bFM0VUJLdlJHTk82aW5YcVE6MTpjaQ';\nconst clientSecret = 'ZAApmo-Z6kzX-fYYyyWjCffziJfRNP8yVURxEdIgyYmKoea3nH';\nconst redirectUri = 'https://tarek1207.app.n8n.cloud/webhook/x-oauth-callback';\n\nif (\n  clientId === 'YOUR_X_CLIENT_ID' ||\n  clientSecret === 'YOUR_X_CLIENT_SECRET' ||\n  redirectUri === 'YOUR_N8N_CALLBACK_URL'\n) {\n  throw new Error('Replace YOUR_X_CLIENT_ID, YOUR_X_CLIENT_SECRET, and YOUR_N8N_CALLBACK_URL before activating this workflow.');\n}\n\nconst auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');\n\nreturn [{\n  json: {\n    ...$json,\n    redirect_uri: redirectUri,\n    authorization: `Basic ${auth}`,\n  },\n}];"
+        "jsCode": "// The X OAuth client id and secret are NOT in this node. Exchange Code For Tokens\n// authenticates with the shared \"Delphi X OAuth Client\" Basic Auth credential\n// (user = client id, password = client secret), so a key rotation is one\n// credential edit. Only the redirect URI lives here; it must match the one the\n// router's Generate X OAuth Link sends to X.\nconst redirectUri = 'https://tarek1207.app.n8n.cloud/webhook/x-oauth-callback';\n\nreturn [{\n  json: {\n    ...$json,\n    redirect_uri: redirectUri,\n  },\n}];"
       }
     },
     {
@@ -173,13 +173,11 @@
       "parameters": {
         "method": "POST",
         "url": "https://api.x.com/2/oauth2/token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{ $json.authorization }}"
-            },
             {
               "name": "Content-Type",
               "value": "application/x-www-form-urlencoded"
@@ -209,6 +207,12 @@
           ]
         },
         "options": {}
+      },
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "7YhRjDMkZBG1P1ka",
+          "name": "Delphi X OAuth Client"
+        }
       }
     },
     {
@@ -920,8 +924,8 @@
   },
   "nodeGroups": [],
   "pinData": {},
-  "versionId": "08616485-30fd-44ac-a780-ae644167020d",
-  "activeVersionId": "08616485-30fd-44ac-a780-ae644167020d",
+  "versionId": "89c97ca1-cf59-4a0b-b492-741958520af8",
+  "activeVersionId": "89c97ca1-cf59-4a0b-b492-741958520af8",
   "triggerCount": 1,
   "sourceWorkflowId": null,
   "shared": [

@@ -51,6 +51,19 @@ FB Monitor and Insta-Monitor changelogs.
   equals the pre-edit live version (the export had recorded `f6fe84d0` although live was
   already `a852cfe9` with the same nodes).
 
+- **X OAuth client keys rotated and moved into one credential, 2026-10-25 (production and
+  staging).** The regenerated X OAuth 2.0 client secret lives only in the n8n Basic Auth
+  credential **Delphi X OAuth Client** (`7YhRjDMkZBG1P1ka`, shared with Hamdi Said's project).
+  `Exchange Code For Tokens` in XMonitor - X OAuth Callback (`JQ9KM3l1kRJQhWxb`, now
+  `89c97ca1`) and its staging copy (`gji3bQd2LdodwEJR`, `dba4cb83`), and `Refresh X Token`
+  in the Telegram Router (`cWczsttyDbTBbRAC`, `0854a324`) and Router Staging
+  (`oLwwjO05IcRjtF8E`, `5091422a`) authenticate with it. `Prepare Token Request` /
+  `Prepare Refresh Request` no longer hold the client ID or secret. All four published,
+  `versionId == activeVersionId`. Checked against X with an invalid refresh token: the
+  credential got `400 invalid_request`, and the real client ID with a wrong secret got
+  `401 unauthorized_client` (executions 52600-52602; probe workflow archived). The PolyJess
+  gateway keeps its own copy in the staging Vault entry `jess_phase4_gateway_bootstrap_v1`.
+
 - **XMonitor - Telegram Router Staging (`oLwwjO05IcRjtF8E`), 2026-10-24: SMMWiz service ids
   come from the table.** Likes and comments orders read `likes_service_id` /
   `comments_service_id` from `"FB SMM Settings"` row `provider = 'smmwiz_x'` (active only)
