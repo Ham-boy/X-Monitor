@@ -12,7 +12,12 @@ Production workflow that periodically scans X posts from tracked users, finds po
 - Local export: `workflows/active/xmonitor-scheduled-post-tracking.json`
 - Live description: `Production scheduled post tracking workflow using production Supabase/Postgres/Telegram credentials and shared X/OpenAI credentials.`
 - Unhandled error workflow: `XMonitor - Production Developer Error Alerts` (`UmKr9JkZ3ec3GDH5`)
-- Last observed live update: `2026-10-24T15:40:57.427Z` (published version `3abae1c1-9b22-470e-aa8c-8837563960d2`, client stance; `versionId == activeVersionId` confirmed by re-reading `get_workflow_details`). See [Client stance — promoted 2026-10-24](#client-stance--promoted-2026-10-24).
+- Last observed live update: `2026-11-15T15:21:14.815Z` (published version `f09ce880-b48f-43ba-a572-dcd480a1457f`, cheaper post search; `versionId == activeVersionId` confirmed by re-reading `get_workflow_details`). See [Cheaper post search — promoted 2026-11-15 (KER-66)](#cheaper-post-search--promoted-2026-11-15-ker-66).
+
+> **Cheaper post search promoted 2026-11-15 (KER-66).** The hourly post search excludes
+> retweets and replies, searches 48 hours on every pass and the full 7 days every sixth pass.
+> A post older than two days can alert up to 6 hours late instead of 1. See
+> [Cheaper post search — promoted 2026-11-15 (KER-66)](#cheaper-post-search--promoted-2026-11-15-ker-66).
 
 > **Per-reply sentiment promoted 2026-10-10.** Every new reply is now classified by its own
 > Sentiment Analysis call (`Classify Sentiment`, `gpt-5.4-mini`, IG - Monitor's prompt adapted
@@ -38,7 +43,8 @@ Production workflow that periodically scans X posts from tracked users, finds po
 | Variable | Location | Current value | Meaning |
 | --- | --- | --- | --- |
 | Schedule cadence | `Schedule Trigger` | every `1` hour | Runs the whole tracking process hourly. |
-| Lookback window | `Build X API Query` code, `DAYS_AGO` | `7` days | X search `start_time` is set to now minus this many UTC days. |
+| Post search window | `Build X API Query`, `NARROW_WINDOW_HOURS` / `WIDE_WINDOW_DAYS` / `WIDE_EVERY_HOURS` | `48` hours every pass; `7` days when the last completed 7-day search is `6` hours old | Since KER-66. Was a single `DAYS_AGO = 7`. The last completed 7-day search is the `Run State` row `scheduled_post_tracking_wide_search`. |
+| Post search filters | `Build X API Query`, `QUERY_SUFFIX` | `-is:retweet -is:reply` | Applied to the whole bracketed `from:` group. The handle list is split into several queries past 1,000 characters. |
 | Tracked users source | `Get Tracked Users` | Postgres query over `Tracked Users` joined to `Clients`, filtered `tu.is_active` | The workflow builds an X query from each non-empty `username`. Rows a chat has stopped tracking are deactivated rather than deleted, so they must be filtered out here. **T3:** each row now also carries `client_id` and its client's `min_replies`, `negative_threshold` and `lookback_days`, which is how every downstream gate becomes per-client. `Clients` is joined but *not* filtered on `is_active` — deactivating a client must not silently stop collecting its posts; it is dropped at delivery instead. |
 | X post search limit | `Get posts of tracked users` | `max_results=50` | Fetches up to 50 matching posts per run from X search/all. |
 | Minimum replies | `Keep Posts With 10+ Replies` | `public_metrics.reply_count >= {{ $json.client_min_replies }}` | Posts below their **own client's** `Clients.min_replies` do not get reply sentiment analysis. Was a hardcoded `10` until T3; `10` survives only as the fallback for a post whose client did not resolve. The node name is kept deliberately — `Attach replies to posts` and every pinned fixture reference it by name. |
@@ -109,6 +115,54 @@ These callbacks make this workflow coupled to the Telegram router command parsin
 | A post whose owning client did not resolve | Treated as the case above with an unresolved client, never broadcast to some other client's chat. Its thresholds fall back to the pre-T3 `10` / `0.5`. |
 | A reply's sentiment call fails | `Classify Sentiment` runs with `onError: continueErrorOutput` and retry ×3. The reply is left out of `results` (not stored, not counted), `If Any Classification Failed` sends `Probe OpenAI Error Reason` → `Build Sentiment Failure Alert` → developer alert, and `If Safe To Advance Watermark (Analyzed)` holds the watermark so the reply is re-scored next pass. Replies that did classify are stored and alerted on. See below. |
 | Reply or post search hit the page cap | `Attach replies to posts` sets `fetch_truncated`; `If Fetch Truncated` raises `SEARCH_PAGE_CAP_REACHED` on the developer-alert path **and** the watermark is held. See below. |
+
+## Cheaper post search — promoted 2026-11-15 (KER-66)
+
+Approved by Hamdi in the builder session on 2026-11-15 ("push to production"). Published
+version `f09ce880-b48f-43ba-a572-dcd480a1457f`; `versionId == activeVersionId` confirmed by
+re-reading `get_workflow_details` after `publish_workflow`. The design, the measurement and the
+staging evidence are in the
+[staging doc](./xmonitor-scheduled-post-tracking-staging.md#cheaper-post-search---ker-66-2026-11-15);
+this section records what is specific to production.
+
+What production now does differently:
+
+- The post search is `(from:a OR from:b) -is:retweet -is:reply`. Retweets and the accounts'
+  own replies are no longer candidates, including a reply to the account's own post.
+- Every pass searches the last 48 hours. The full 7 days are searched when the last completed
+  7-day search is 6 hours old; that time is the `Run State` row
+  `scheduled_post_tracking_wide_search`, advanced by `Advance Run State` and
+  `Advance Run State (Quiet Pass)` on a wide pass only.
+- **A post older than two days can alert up to 6 hours late instead of 1.** Recipients,
+  thresholds, message text and buttons are unchanged.
+- A post search that returns nothing, or only ignored or snoozed posts, ends as a quiet pass
+  and advances the run state. Before, the run stopped at `Split Out Posts`.
+- A post search that stops at 10 pages raises `SEARCH_PAGE_CAP_REACHED` on a quiet pass too.
+
+How it was promoted:
+
+1. Live production re-read: it matched the local export, and nine of the ten touched nodes
+   were byte-identical to the staging base. `Get posts of tracked users` differs only in
+   pagination defaults that production stores explicitly; the transform adds
+   `options.batching` and leaves pagination alone.
+2. `scripts/apply-ker66-cheaper-post-search.mjs` applied through `update_workflow`: ten
+   operations, draft `f09ce880`. The saved draft was re-read and matched the transform node for
+   node. No credential was reassigned (`autoAssignedCredentials: []`); credentials and workflow
+   settings are as before.
+3. Pinned suite against the **unpublished draft**
+   (`XMONITOR_WORKFLOW_ID=Emb26wP77eFXgnVi XMONITOR_ALLOW_UNPUBLISHED_DRAFT=1 ./run-pins.sh`):
+   26 of 26, none skipped, executions `65820` to `65845`, between 15:21 and 15:27 UTC. The
+   watermark fixtures wrote production `Run State` and restored it each time; afterwards the
+   watermark was `2026-11-15 15:00:11.572+00`, the value the 15:00 pass had left, and the new
+   wide-search row was null.
+4. `publish_workflow` at 15:28 UTC, then the re-read above.
+
+Scheduled passes on the new version:
+
+| Execution | Pass | Posts returned | Outcome |
+| --- | --- | --- | --- |
+| `65761`, 14:00 UTC, old version | 7 days | 9 (6 posts, 2 retweets, 1 reply) | for comparison |
+| `65856`, 16:00 UTC | wide (no marker yet), 7 days | **6**, the same six posts | the one post with 10+ replies is `Ignored`, so `NO_QUALIFYING_POSTS`; quiet pass; watermark and wide-search marker both advanced to `2026-11-15 16:00:11.563+00` (`wide_search_marker_advanced 1`) |
 
 ## Per-post reply backfill — promoted 2026-09-04
 

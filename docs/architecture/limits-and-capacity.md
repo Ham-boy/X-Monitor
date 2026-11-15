@@ -154,6 +154,51 @@ full window, and `last_successful_run_at` must be persisted (a `Clients` column 
 `Run State` table) and only advanced on a **successful** pass — otherwise a failed run
 silently creates a permanent gap in reply coverage.
 
+### 1.5 Post search, measured 2026-11-15 (KER-66)
+
+Read-only, from production `Emb26wP77eFXgnVi`: **98 consecutive scheduled executions**,
+`62079` to `65761`, 2026-11-11 13:00 to 2026-11-15 14:00 UTC, three tracked accounts, the
+query `from:lynnharfoush OR from:camille_mourani OR from:michelhelou_lb` over 7 days. Counts
+are what `Get posts of tracked users` returned. A retweet is a post whose text starts `RT @`;
+a reply is a post whose `conversation_id` is not its own `id`.
+
+| Per pass | Posts | Share |
+| --- | --- | --- |
+| Returned | **8.85** (min 8, max 10) | 100% |
+| Original posts | 6.67 | 75% |
+| Retweets | 1.17 | 13% |
+| Replies to other people | 1.00 | 11% |
+| Replies to the account's own posts | 0 | 0% |
+| Older than 48 hours | 6.50 | 73% |
+| Original and older than 48 hours | 4.71 | 53% |
+| Original and younger than 48 hours | 1.96 | 22% |
+
+Those 867 reads were **13 distinct posts**: 9 originals, 3 retweets, 1 reply. Only two posts
+had 10 or more replies (27 and 87), both originals. Every search took two requests; the second
+page was always empty and costs nothing. The replies search ran in 95 of the 98 passes and
+returned **0 replies** every time, so in this window the post search was the scheduler's whole
+X spend.
+
+Share of the bill. At $0.005 a post, 8.85 posts per pass is $0.044 per pass, **$1.06 a day,
+about $32 per 30 days: roughly 73% of the $43.77** Victor recorded for the 30 days to
+2026-11-14, on the assumption that this window is typical. Against X's own usage counter,
+which covers every product on the shared project: 227 of 554 posts on 13 November (41%), 216 of
+264 on 14 November (82%).
+
+| Change | Posts per pass | Per 30 days | Saving |
+| --- | --- | --- | --- |
+| Today | 8.85 | $31.9 | |
+| `-is:retweet` | 7.68 | $27.6 | $4.2 |
+| `-is:reply` | 7.85 | $28.3 | $3.6 |
+| Both | 6.67 | $24.0 | $7.8 |
+| Both, and posts older than 48 h searched every sixth pass | **2.75** | **$9.9** | **$22.0 (69%)** |
+
+The last row is 1.96 + 4.71 / 6. Over its life a post is read 68 times instead of 168.
+
+Built and validated on staging 2026-11-15; see
+[the staging workflow doc](../workflows/xmonitor-scheduled-post-tracking-staging.md#cheaper-post-search---ker-66-2026-11-15).
+Promoted to production the same day (published `f09ce880`).
+
 ---
 
 ## 2. X API — rate limits

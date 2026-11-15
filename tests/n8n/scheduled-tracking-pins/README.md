@@ -65,6 +65,13 @@ evidence — check the two version ids.
 Staging is `active: false` by design and driven by manual execution, so the check reports
 "not applicable" there and the suite proceeds.
 
+One deliberate way past it: `XMONITOR_ALLOW_UNPUBLISHED_DRAFT=1`. A promotion edits the
+production draft first, and that draft should be tested *before* it is published. With the
+variable set the runner prints that it is testing an unpublished draft and which version the
+schedule is still running, then proceeds. It is for that one step; a pass under it says
+nothing about live behaviour until the draft is published. First used 2026-11-15 (KER-66),
+executions `65820`-`65845`.
+
 The check **fails closed**. If the workflow read fails or the response shape changes, the
 parsed fields come back empty — and an empty draft id compares equal to an empty active id,
 so a naive check would sail straight through and silently skip the very thing it exists for.
@@ -168,6 +175,34 @@ reply media sentiment nodes (`Apply Media Sentiment`, `Classify Media Replies`):
 exist in both environments since the 2026-10-10 promotion, so everything else runs against
 production unchanged. `tests/n8n/t3-alert-routing-fixtures.test.mjs` regroups the Merge pins
 the way `Collect Sentiment Labels` does to exercise the production export offline.
+
+## The post-search fixtures (KER-66, 2026-11-15)
+
+The post search now excludes retweets and replies, searches 48 hours on every pass and the
+full 7 days when the last completed 7-day search is 6 hours old, and splits long handle lists.
+The last completed 7-day search is a second `Run State` row,
+`scheduled_post_tracking_wide_search`, advanced by the same two writers on a wide pass only.
+
+| Fixture | Must |
+| --- | --- |
+| `watermark-narrow-pass-holds-wide-marker` | `Run State` pinned 3 h after a wide pass. 48-hour window, the exact query `(from:RebelHam_ OR from:HamSadkaev) -is:retweet -is:reply`, reply watermark **advances**, wide marker **holds** |
+| `watermark-wide-pass-advances-wide-marker` | Pinned 5 h 59 m 59 s after a wide pass. 7-day window; the 4-day-old post's replies are read from the previous wide pass (`02:50:01`), the recent post's from the hourly watermark (`07:50:00`); **both** markers advance |
+| `watermark-no-posts-returned` | The search returns no post. The run must end `NO_POSTS_RETURNED` and advance; before KER-66 it stopped at `Split Out Posts` |
+| `post-search-query-chunking` | 60 handles of 15 characters become two queries. Pins the quiet writer; not a watermark fixture |
+| `watermark-truncated-posts-holds` | Existing fixture; now also asserts `SEARCH_PAGE_CAP_REACHED`, which the quiet path never raised |
+
+`run-pins.sh` treats the wide-search row like the watermark: it creates the row if it is
+missing, snapshots it before every `watermark-*` fixture, asserts advance or hold, and restores
+it. A fixture that pins no watermark is a first pass, which is always wide, so the older
+"advance" fixtures also advance the wide marker; `watermark-no-tracked-users` and every "hold"
+fixture must leave it alone. The runner only asserts on the row when the target workflow
+mentions it, so the suite still runs against production before the promotion.
+
+Pinned HTTP nodes return the pin once however many query chunks arrive, so
+`post-search-query-chunking` proves the split, not the per-chunk requests. Chunk length and
+completeness are asserted in `tests/n8n/ker66-post-search.test.mjs`, which needs no access and
+runs the same Code-node bodies against both exports. The real query was accepted by X on
+staging executions `65807`-`65809`.
 
 ## What these fixtures cannot prove
 

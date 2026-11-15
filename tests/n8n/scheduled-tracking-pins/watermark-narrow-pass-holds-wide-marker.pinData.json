@@ -1,0 +1,99 @@
+{
+  "Schedule Trigger": [
+    {
+      "json": {}
+    }
+  ],
+  "Get Run State": [
+    {
+      "json": {
+        "key": "scheduled_post_tracking",
+        "last_successful_run_at": "2026-11-10T08:00:00.000Z",
+        "last_wide_search_at": "2026-11-10T06:00:00.000Z",
+        "run_started_at": "2026-11-10T09:00:00.000Z"
+      }
+    }
+  ],
+  "Advance Post Suppression State": [
+    {
+      "json": {
+        "blocked_post_ids": []
+      }
+    }
+  ],
+  "Get Tracked Users": [
+    {
+      "json": {
+        "user_id": "951803761",
+        "username": "RebelHam_",
+        "display_name": "RebelHam_",
+        "is_active": true,
+        "client_id": "f7317adc-eea5-49db-81bf-8b2393a93c89",
+        "client_slug": "house",
+        "client_name": "House Account",
+        "client_min_replies": 10,
+        "client_negative_threshold": 0.5,
+        "client_lookback_days": 7
+      }
+    },
+    {
+      "json": {
+        "user_id": "2060633836858339332",
+        "username": "HamSadkaev",
+        "display_name": "HamSadkaev",
+        "is_active": true,
+        "client_id": "f7317adc-eea5-49db-81bf-8b2393a93c89",
+        "client_slug": "house",
+        "client_name": "House Account",
+        "client_min_replies": 10,
+        "client_negative_threshold": 0.5,
+        "client_lookback_days": 7
+      }
+    }
+  ],
+  "Get posts of tracked users": [
+    {
+      "json": {
+        "data": [
+          {
+            "id": "2060604129798496702",
+            "conversation_id": "2060604129798496702",
+            "author_id": "951803761",
+            "created_at": "2026-11-09T20:00:00.000Z",
+            "text": "narrow pass post A",
+            "public_metrics": {
+              "reply_count": 2
+            }
+          },
+          {
+            "id": "2058879475094266262",
+            "conversation_id": "2058879475094266262",
+            "author_id": "951803761",
+            "created_at": "2026-11-09T02:00:00.000Z",
+            "text": "narrow pass post B",
+            "public_metrics": {
+              "reply_count": 9
+            }
+          }
+        ],
+        "meta": {
+          "result_count": 2
+        }
+      }
+    }
+  ],
+  "Send Scheduler Developer Alert": [
+    {
+      "json": {
+        "ok": true
+      }
+    }
+  ],
+  "Send Negative Alert Notification": [
+    {
+      "json": {
+        "ok": true
+      }
+    }
+  ]
+}

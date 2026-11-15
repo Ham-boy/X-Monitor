@@ -358,13 +358,18 @@
       "expected": {
         "reaches": [
           "Assess Quiet Outcome",
-          "If Safe To Advance Watermark"
+          "If Safe To Advance Watermark",
+          "If Fetch Truncated",
+          "Build Truncation Alert"
         ],
         "doesNotReach": [
           "Advance Run State (Quiet Pass)",
           "Advance Run State"
         ],
-        "runState": "UNCHANGED"
+        "runState": "UNCHANGED",
+        "asserts": {
+          "scheduler_alert_type": "SEARCH_PAGE_CAP_REACHED (added 2026-11-15, KER-66: the quiet path held the marker but raised no alert)"
+        }
       }
     },
     {
@@ -781,6 +786,108 @@
       },
       "why": "A post is invisible to the reply fetcher until its X reply_count crosses the client's min_replies. By then every reply it already has is older than the watermark window, so a watermark-anchored search skips them and never asks again -- the replies are lost, not merely delayed. Production post 2095516553672380450 lost 9 of 13 replies exactly this way on 2026-09-04. Get Backfilled Post Ids reports the post as uncollected, so the window must start one minute before the post's own created_at (09:59), not at 13:50.",
       "environmentNeutral": "Runs against BOTH schedulers. Get Active Cheat Sheets and Classify Media Replies are deliberately NOT pinned because they exist only in staging and pin data naming an absent node is a hard error; the defect this covers is a production one, so the fixture must not be staging-only. Unpinned, the cheat-sheet lookup is a read-only SELECT and the media classifier is unreachable (no reply carries an attachment). Green in both: production 21617, staging 21619."
+    },
+    {
+      "id": "watermark-narrow-pass-holds-wide-marker",
+      "file": "watermark-narrow-pass-holds-wide-marker.pinData.json",
+      "added": "2026-11-15 (KER-66)",
+      "input": "Run State pinned 3h after the last wide search; two tracked accounts; two posts below min_replies",
+      "proves": "A pass inside the 6-hour cadence searches 48 hours only, with the bracketed -is:retweet -is:reply query, and advances the reply watermark WITHOUT touching the wide-search marker.",
+      "watermarkWriterPinned": false,
+      "expected": {
+        "asserts": {
+          "wide_search": false,
+          "search_window_hours": 48,
+          "query": "(from:RebelHam_ OR from:HamSadkaev) -is:retweet -is:reply",
+          "wide_search_marker_advanced": 0
+        },
+        "runState": "scheduled_post_tracking ADVANCED to 2026-11-10 09:00:00+00; scheduled_post_tracking_wide_search UNCHANGED",
+        "doesNotCallLive": [
+          "X search",
+          "OpenAI",
+          "Telegram sendMessage"
+        ]
+      }
+    },
+    {
+      "id": "watermark-wide-pass-advances-wide-marker",
+      "file": "watermark-wide-pass-advances-wide-marker.pinData.json",
+      "added": "2026-11-15 (KER-66)",
+      "input": "Run State pinned 5h59m59s after the last wide search; one recent and one 4-day-old collected post; every reply already scored",
+      "proves": "A due pass searches 7 days, reads the replies of the older post from the PREVIOUS wide pass (02:50:01) and those of the recent post from the hourly watermark (07:50:00), and advances both markers.",
+      "watermarkWriterPinned": false,
+      "expected": {
+        "asserts": {
+          "wide_search": true,
+          "search_window_hours": 168,
+          "wide_catch_up": true,
+          "start_times": [
+            "2026-11-10T07:50:00.000Z",
+            "2026-11-10T02:50:01.000Z"
+          ],
+          "wide_search_marker_advanced": 1
+        },
+        "runState": "both rows ADVANCED to 2026-11-10 09:00:00+00",
+        "doesNotCallLive": [
+          "X search",
+          "OpenAI",
+          "Telegram sendMessage"
+        ]
+      }
+    },
+    {
+      "id": "watermark-no-posts-returned",
+      "file": "watermark-no-posts-returned.pinData.json",
+      "added": "2026-11-15 (KER-66)",
+      "input": "Posts search returns {\"meta\":{\"result_count\":0}}",
+      "proves": "An empty post search ends as a quiet pass and advances the run state. Before KER-66 the run stopped at Split Out Posts and neither marker moved (staging execution 65775).",
+      "watermarkWriterPinned": false,
+      "expected": {
+        "reaches": [
+          "Filter Suppressed Posts",
+          "Keep Posts With 10+ Replies",
+          "Assess Quiet Outcome",
+          "Advance Run State (Quiet Pass)"
+        ],
+        "asserts": {
+          "quiet_reason": "NO_POSTS_RETURNED",
+          "no_candidate_posts": true
+        },
+        "runState": "both rows ADVANCED to 2026-08-25 09:45:00+00",
+        "doesNotCallLive": [
+          "X search",
+          "OpenAI",
+          "Telegram sendMessage"
+        ]
+      }
+    },
+    {
+      "id": "post-search-query-chunking",
+      "file": "post-search-query-chunking.pinData.json",
+      "added": "2026-11-15 (KER-66)",
+      "input": "60 tracked accounts with 15-character handles",
+      "riskPinned": [
+        "Schedule Trigger",
+        "Get Run State",
+        "Advance Post Suppression State",
+        "Get Tracked Users",
+        "Get posts of tracked users",
+        "Advance Run State (Quiet Pass)",
+        "Send Scheduler Developer Alert",
+        "Send Negative Alert Notification"
+      ],
+      "proves": "The handle list is split into two queries instead of one 1,400-character query that X would reject. Per-chunk length and completeness are asserted offline in tests/n8n/ker66-post-search.test.mjs.",
+      "expected": {
+        "asserts": {
+          "query_chunk_count": 2
+        },
+        "doesNotCallLive": [
+          "X search",
+          "OpenAI",
+          "Telegram sendMessage",
+          "Supabase writes"
+        ]
+      }
     }
   ],
   "tenancyFixtures": {
