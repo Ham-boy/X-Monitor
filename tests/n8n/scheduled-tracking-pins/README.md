@@ -65,6 +65,13 @@ evidence — check the two version ids.
 Staging is `active: false` by design and driven by manual execution, so the check reports
 "not applicable" there and the suite proceeds.
 
+One deliberate way past it: `XMONITOR_ALLOW_UNPUBLISHED_DRAFT=1`. A promotion edits the
+production draft first, and that draft should be tested *before* it is published. With the
+variable set the runner prints that it is testing an unpublished draft and which version the
+schedule is still running, then proceeds. It is for that one step; a pass under it says
+nothing about live behaviour until the draft is published. First used 2026-11-15 (KER-66),
+executions `65820`-`65845`.
+
 The check **fails closed**. If the workflow read fails or the response shape changes, the
 parsed fields come back empty — and an empty draft id compares equal to an empty active id,
 so a naive check would sail straight through and silently skip the very thing it exists for.

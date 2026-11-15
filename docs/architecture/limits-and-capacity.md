@@ -196,8 +196,8 @@ which covers every product on the shared project: 227 of 554 posts on 13 Novembe
 The last row is 1.96 + 4.71 / 6. Over its life a post is read 68 times instead of 168.
 
 Built and validated on staging 2026-11-15; see
-[the staging workflow doc](../workflows/xmonitor-scheduled-post-tracking-staging.md#cheaper-post-search---ker-66-2026-11-15-staging-only).
-Not in production.
+[the staging workflow doc](../workflows/xmonitor-scheduled-post-tracking-staging.md#cheaper-post-search---ker-66-2026-11-15).
+Promoted to production the same day (published `f09ce880`).
 
 ---
 

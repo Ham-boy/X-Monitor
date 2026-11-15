@@ -9,9 +9,22 @@ FB Monitor and Insta-Monitor changelogs.
 
 ## [Unreleased]
 
+- **Scheduled Post Tracking (`Emb26wP77eFXgnVi`, production), 2026-11-15: cheaper hourly X
+  post search promoted (KER-66), approved by Hamdi in chat.** Published version `f09ce880`,
+  `versionId == activeVersionId` confirmed by re-read. The same ten edits as staging, applied
+  by `scripts/apply-ker66-cheaper-post-search.mjs`; no credential, schedule, threshold,
+  recipient or message text changed. Production now searches
+  `(from:a OR from:b) -is:retweet -is:reply`, 48 hours on every pass and 7 days every sixth
+  pass (new `Run State` row `scheduled_post_tracking_wide_search`, created by the workflow, no
+  migration). **A post older than two days can alert up to 6 hours late instead of 1; retweets
+  and the accounts' own replies are no longer candidates.** Pinned suite on the unpublished
+  draft 26 of 26 (`65820`-`65845`), using the new `XMONITOR_ALLOW_UNPUBLISHED_DRAFT=1` switch
+  in `run-pins.sh`; production `Run State` restored afterwards. First scheduled pass on the new
+  version, `65856` at 16:00 UTC: 6 posts where the 14:00 pass returned 9, quiet pass, both
+  markers advanced. Docs: `docs/workflows/xmonitor-scheduled-post-tracking.md`.
 - **Scheduled Post Tracking Staging (`l4eKZucUZXzfz0H8`), 2026-11-15: cheaper hourly X post
-  search (KER-66). Staging only; production `Emb26wP77eFXgnVi` is unchanged and needs Hamdi's
-  approval.** Measured first, on 98 production runs: the search returns 8.85 posts per pass
+  search (KER-66). Staging first; promoted to production the same day, see the entry above.**
+  Measured first, on 98 production runs: the search returns 8.85 posts per pass
   (6.67 posts, 1.17 retweets, 1.00 reply; 6.50 older than 48 hours), about $32 per 30 days,
   roughly 73% of the X bill. On staging: (1) the query is
   `(from:a OR from:b) -is:retweet -is:reply`; (2) every pass searches 48 hours and the full 7

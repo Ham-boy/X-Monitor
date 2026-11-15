@@ -53,52 +53,6 @@ Notes:
 
 ## Open Tasks
 
-### Cheaper hourly X post search (KER-66): promote to production
-
-- Status: **staging done 2026-11-15; production waits for Hamdi's approval**
-- Priority: medium
-- Complexity: `L`
-- Source: Victor's cost case, approved by Hamdi 2026-11-15, Linear
-  [KER-66](https://linear.app/keryxpc/issue/KER-66). Victor re-checks the result; do not close
-  KER-66 from here.
-
-Design:
-
-1. Apply `scripts/apply-ker66-cheaper-post-search.mjs` to production `Emb26wP77eFXgnVi`: ten
-   edits, listed in `docs/workflows/xmonitor-scheduled-post-tracking-staging.md` under
-   "What a production promotion would change". No credential, id, schedule, threshold or
-   activation state is touched. No migration: `Get Run State` creates the new `Run State` row.
-2. Run the pinned suite against production (`XMONITOR_WORKFLOW_ID=Emb26wP77eFXgnVi`), publish,
-   confirm `versionId == activeVersionId`, read the next two scheduled executions.
-3. Approval point: the production edit and publish. The watermark fixtures write production
-   `Run State` and restore it.
-
-Validation:
-
-- Staging: offline test 48 of 48, pinned suite 26 of 26 (`65779`-`65806`), live runs `65807`,
-  `65808`, `65809`. Details in the staging doc.
-- Production, after promotion: first pass is wide; passes two to six search 48 hours; pass
-  seven is wide again and advances `scheduled_post_tracking_wide_search`.
-
-Open Questions:
-
-- Approve the production promotion? What changes for the client: retweets and the accounts'
-  own replies stop being alert candidates, and a post older than two days alerts up to 6 hours
-  late instead of 1.
-- A reply by a tracked account to its **own** post (a thread) is also excluded by `-is:reply`.
-  None occurred in the 98 measured runs. Keep it excluded, or pay for one query clause per
-  account to keep threads?
-
-Notes:
-
-- Measurement: `docs/architecture/limits-and-capacity.md` section 1.5.
-- Not built: hourly reply checks for already-qualified posts older than 48 hours, by reading
-  their conversation ids from `Posts`. It would bring the worst case back to 1 hour for those
-  posts at no post-search cost.
-- Unrelated and already failing on `main`: `tests/n8n/t3-alert-routing.test.mjs` and
-  `tests/n8n/t3-alert-routing-fixtures.test.mjs` fail on the production export with
-  `unexpected $('Apply Media Sentiment')`. Not touched here.
-
 ### Move the SMMWiz API key out of workflow parameters and rotate it
 
 - Status: in progress (staging router done 2026-10-03; production and polling pending)
@@ -821,6 +775,49 @@ Its guidance was folded into the merged task and still holds:
   the larger of the two.
 
 ## Completed Tasks
+### Cheaper hourly X post search (KER-66)
+
+- Status: **done 2026-11-15, live on production** (published `f09ce880`)
+- Priority: medium
+- Complexity: `L`
+- Source: Victor's cost case, approved by Hamdi 2026-11-15, Linear
+  [KER-66](https://linear.app/keryxpc/issue/KER-66). Victor re-checks the result; KER-66 is
+  not closed from this repository.
+
+Design:
+
+1. `scripts/apply-ker66-cheaper-post-search.mjs`, ten edits, applied to staging
+   `l4eKZucUZXzfz0H8` and then to production `Emb26wP77eFXgnVi`.
+2. Query `(from:a OR from:b) -is:retweet -is:reply`; 48-hour search every pass, 7-day search
+   every sixth pass tracked in `Run State` row `scheduled_post_tracking_wide_search`; query
+   split under 1,024 characters; an empty search ends as a quiet pass; page-cap alert on quiet
+   passes.
+
+Validation:
+
+- Staging: offline test 48 of 48, pinned suite 26 of 26 (`65779`-`65806`), live runs `65807`,
+  `65808`, `65809`.
+- Production: pinned suite on the unpublished draft 26 of 26 (`65820`-`65845`), published,
+  version ids match, first scheduled pass `65856` returned 6 posts where the previous version
+  returned 9.
+
+Open Questions:
+
+- A reply by a tracked account to its **own** post (a thread) is also excluded by `-is:reply`.
+  None occurred in the 98 measured runs. Left excluded; keeping threads would need one query
+  clause per account.
+
+Notes:
+
+- Measurement: `docs/architecture/limits-and-capacity.md` section 1.5. Projected 8.85 to 2.75
+  posts per pass, about $32 to $10 per 30 days. Not yet confirmed against X's usage counter.
+- Accepted trade-off: a post older than two days can alert up to 6 hours late instead of 1.
+- Not built: hourly reply checks for already-qualified posts older than 48 hours, by reading
+  their conversation ids from `Posts`. It would bring that worst case back to 1 hour.
+- Unrelated and already failing on `main`: `tests/n8n/t3-alert-routing.test.mjs` and
+  `tests/n8n/t3-alert-routing-fixtures.test.mjs` fail on the production export with
+  `unexpected $('Apply Media Sentiment')`.
+
 ### Per-post reply backfill — replies before a post qualifies were never fetched
 
 - Status: done — promoted to production 2026-09-04

@@ -20,9 +20,9 @@ production.
 > **Staging is slightly ahead of production.** Per-reply sentiment classification (see
 > [Per-Reply Sentiment Classification](#per-reply-sentiment-classification---2026-10-10))
 > was validated here and promoted to `Emb26wP77eFXgnVi` on 2026-10-10, together with
-> `Get Active Cheat Sheets`. What remains staging-only is the cheaper post search (KER-66,
-> 2026-11-15, [below](#cheaper-post-search---ker-66-2026-11-15-staging-only)), reply media
-> sentiment and the cheat-sheet generator workflow. Validate changes here first, then promote, and remember
+> `Get Active Cheat Sheets`. What remains staging-only is reply media sentiment and the
+> cheat-sheet generator workflow. The cheaper post search (KER-66,
+> [below](#cheaper-post-search---ker-66-2026-11-15)) was promoted on 2026-11-15. Validate changes here first, then promote, and remember
 > production runs a **published version** - saving a draft there does not change live
 > behaviour until it is published.
 >
@@ -60,19 +60,19 @@ production.
 | Classification shape | `Build Analysis Plan` → `Classify Sentiment` | **one model call per new reply**, batches of `5`, `1000 ms` between batches, `retryOnFail` ×3, auto-fixing on | Since 2026-10-10. Production still sends every new reply in one batched JSON call. See [Per-Reply Sentiment Classification](#per-reply-sentiment-classification---2026-10-10). |
 | Post text in the prompt | `Build Analysis Plan`, `composeClassifierInput` | cut at `1000` chars | Same cap as IG - Monitor's caption. |
 
-## Cheaper Post Search - KER-66, 2026-11-15 (staging only)
+## Cheaper Post Search - KER-66, 2026-11-15
 
 Victor's case, approved by Hamdi on 2026-11-15 and filed as
 [KER-66](https://linear.app/keryxpc/issue/KER-66). The hourly post search was the largest
 single line on the X bill: it returned every post, retweet and reply of every tracked account
 from the last 7 days on every pass, so each one was paid for up to 168 times. The measurement
 is in [`limits-and-capacity.md` section 1.5](../architecture/limits-and-capacity.md#15-post-search-measured-2026-11-15-ker-66).
-**Production (`Emb26wP77eFXgnVi`) is unchanged**; see
-[What a production promotion would change](#what-a-production-promotion-would-change).
+**Promoted to production `Emb26wP77eFXgnVi` the same day**, published version `f09ce880`; see
+the [production doc](./xmonitor-scheduled-post-tracking.md#cheaper-post-search--promoted-2026-11-15-ker-66).
 
 The whole change is one idempotent transform, `scripts/apply-ker66-cheaper-post-search.mjs`.
 It produced this staging edit, the offline test runs it against both exports, and a
-promotion is the same transform applied to production.
+promotion was the same transform applied to production.
 
 ### What changed
 
@@ -142,7 +142,7 @@ marker moved; the "posts search returned nothing" row in the table under
 returned post was snoozed or ignored. With a 7-day window that was rare. With a 48-hour window
 it is the ordinary outcome for accounts that have not posted in two days. Both shapes now reach
 `Assess Quiet Outcome` (`NO_POSTS_RETURNED` or `NO_QUALIFYING_POSTS`) and advance the run
-state. Production has the same gap today; there it only costs re-reads.
+state. Production had the same gap until the promotion.
 
 ### Page cap on the post search
 
@@ -192,9 +192,11 @@ restored: `Posts` 7, `Replies` 398, `Tracked Users` 4, watermark
 `2026-10-17 22:31:22.165+00`, all as before. The one thing left behind is the new row
 `scheduled_post_tracking_wide_search`, null.
 
-### What a production promotion would change
+### What the production promotion changed
 
-Not done. It needs Hamdi's explicit approval.
+Done 2026-11-15 with Hamdi's approval; the evidence is in the
+[production doc](./xmonitor-scheduled-post-tracking.md#cheaper-post-search--promoted-2026-11-15-ker-66). The list below was written
+before the promotion and is what was applied.
 
 1. The ten edits in the table above, applied to `Emb26wP77eFXgnVi` by the transform. Staging
    and production have the same 62 nodes and the same connections, and the transform touches
@@ -216,7 +218,6 @@ Not done. It needs Hamdi's explicit approval.
 
 ### Not done
 
-- Production promotion.
 - Posts older than 48 hours that already qualified could keep hourly reply checks at no post
   cost by taking their conversation ids from `Posts` instead of from the search. Not built:
   it changes where post data comes from, and Hamdi accepted a slower check on older posts.

@@ -41,6 +41,8 @@ subagent is good for this) → assert the touched prod nodes equal the staging b
 `update_workflow` ops with the prod credential swapped in → simulate on a copy of the prod draft
 → apply → re-read the saved draft → run the pinned fixtures against the prod draft with
 `test_workflow` → publish → confirm `versionId == activeVersionId`.
+For the scheduler, `XMONITOR_ALLOW_UNPUBLISHED_DRAFT=1` lets `run-pins.sh` test the saved prod
+draft before it is published (used 2026-11-15, KER-66); without it the runner refuses.
 In **auto** permission mode the harness classifier refused prod writes (2026-08-30); bypass mode
 did not. If blocked: do the staging half, leave prod untouched, write the prod half as an
 idempotent transform script anchored on node names, hand the user ordered commands, and say
