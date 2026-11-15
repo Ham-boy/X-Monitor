@@ -326,7 +326,12 @@ if [ "$wf_active" = "true" ]; then
     echo "  An active workflow with no activeVersionId has never been published." >&2
     exit 1
   fi
-  if [ "$wf_version" != "$wf_active_version" ]; then
+  # Promotion recipe: test the edited draft BEFORE publishing it. Opt-in only, and loud,
+  # because a green run here says nothing about what the schedule is executing.
+  if [ "$wf_version" != "$wf_active_version" ] && [ "${XMONITOR_ALLOW_UNPUBLISHED_DRAFT:-}" = "1" ]; then
+    echo "publish check: OVERRIDDEN - testing unpublished draft $wf_version"
+    echo "               the schedule is still running $wf_active_version; publish after this passes"
+  elif [ "$wf_version" != "$wf_active_version" ]; then
     echo "" >&2
     echo "REFUSING TO RUN: $WORKFLOW_ID is active but its draft is NOT published." >&2
     echo "  draft  versionId: $wf_version" >&2
@@ -336,7 +341,7 @@ if [ "$wf_active" = "true" ]; then
     echo "  that no scheduled run executes. Publish the workflow, then re-run." >&2
     exit 1
   fi
-  echo "publish check: draft == active ($wf_version)"
+  [ "$wf_version" = "$wf_active_version" ] && echo "publish check: draft == active ($wf_version)"
 else
   echo "publish check: $WORKFLOW_ID is inactive (manual-execution only) - not applicable"
 fi
