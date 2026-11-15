@@ -163,6 +163,7 @@ Scheduled passes on the new version:
 | --- | --- | --- | --- |
 | `65761`, 14:00 UTC, old version | 7 days | 9 (6 posts, 2 retweets, 1 reply) | for comparison |
 | `65856`, 16:00 UTC | wide (no marker yet), 7 days | **6**, the same six posts | the one post with 10+ replies is `Ignored`, so `NO_QUALIFYING_POSTS`; quiet pass; watermark and wide-search marker both advanced to `2026-11-15 16:00:11.563+00` (`wide_search_marker_advanced 1`) |
+| `65886`, 17:00 UTC | narrow, 48 hours | **0** | `NO_POSTS_RETURNED`; quiet pass through the new empty-search path; watermark advanced, wide-search marker untouched (`wide_search_marker_advanced 0`) |
 
 ## Per-post reply backfill — promoted 2026-09-04
 
