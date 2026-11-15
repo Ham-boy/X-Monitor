@@ -1206,6 +1206,26 @@ T3 — T3 is scheduler-only.
 
 ---
 
+## 12e. The X accounts moved to the National Bloc — 2026-11-15
+
+The tenancy backfill (§12c) filed every account that existed under `house`. The three X
+accounts tracked then (`camille_mourani`, `lynnharfoush`, `michelhelou_lb`) belong to the
+National Bloc, client `ketle`, whose Facebook and Instagram accounts were onboarded straight
+into it. On 2026-11-15 they were moved in production, with Hamdi's approval.
+
+`client_id` is denormalised, and the `*_set_client` triggers only derive it on the row being
+written, so moving an account means moving every table that carries it: `Tracked Users`,
+`Posts`, `Replies`, `Order Info`, `Moderation Queue`, `Action Log`, `X Auth Accounts` and the
+client's X row in `Sentiment Cheat Sheets`. The statements and the row counts are in
+`db/migrations/2026-11-15-x-accounts-to-national-bloc.sql`; use it as the recipe next time.
+
+`house` now holds no X account. It keeps its Facebook test pages, its four untracked X
+sign-ins, and one `member_added` Action Log row. Both clients have the same two members, both
+with `receives_alerts`, and the same thresholds, so who is alerted and when did not change.
+Staging was not touched.
+
+---
+
 ## 13. Testing
 
 - **Alert routing** is tested twice over as of T3: `tests/n8n/t3-alert-routing.test.mjs` and

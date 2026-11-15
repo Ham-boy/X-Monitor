@@ -9,6 +9,28 @@ FB Monitor and Insta-Monitor changelogs.
 
 ## [Unreleased]
 
+- **Production database, 2026-11-15: the three X accounts moved from `house` to `ketle` (the
+  National Bloc)** (Hamdi's approval in chat; run from a Victor session). `camille_mourani`,
+  `lynnharfoush` and `michelhelou_lb`, with everything that carries their `client_id`: Tracked
+  Users 3, Posts 43, Replies 1,912, Order Info 4, Moderation Queue 470, Action Log 20, X Auth
+  Accounts 3, and the active X cheat sheet (v1). Recipients and thresholds are the same for both
+  clients, so alerting did not change. No workflow was edited. Recorded, and reusable as the
+  recipe for moving an account, in `db/migrations/2026-11-15-x-accounts-to-national-bloc.sql`.
+  Not run on staging.
+- **Production database, 2026-11-15: row-level security on `"Advanced Monitor Clients"`**
+  (Hamdi's approval in chat; migration `20261115092924`). It was the only table with RLS off.
+  No policy added; the workflows connect as the database owner and are unaffected.
+  `db/migrations/2026-11-15-advanced-monitor-clients-rls.sql`.
+- **Sentiment model, 2026-11-15: `gpt-6-luna` tested and NOT adopted; production and staging
+  stay on `gpt-5.4-mini`.** Two findings for whoever tries a model next. (1) `gpt-6-luna`
+  rejects `temperature: 0` ("Only the default (1) value is supported"), and `OpenAI Sentiment
+  Model` sends the `temperature` of the `comment_text` row, so changing `model` alone would fail
+  every classification. (2) Replaying 110 stored X replies with the production prompt, stance
+  rules and cheat sheet: `gpt-5.4-mini` re-run agreed with the stored label on 98 (89%),
+  `gpt-6-luna` on 83 (75%) in each of two runs, and it called 72 replies Negative where 85 are
+  stored (18 to 19 stored negatives no longer Negative). It was also several times slower. No
+  row and no workflow was changed.
+
 - **Sentiment Prompt Review (Staging) (`L5PotNp2RD3U8BY0`), 2026-10-24: measures the client
   stance like the monitors.** `Collect Labels` also reads active non-blank `"Client Stances"`;
   `lib.js` `prCheatSheetBlock(platform, sheet, stance)` builds the monitors' block (stance first,
