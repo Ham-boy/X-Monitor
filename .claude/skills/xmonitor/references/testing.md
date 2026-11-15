@@ -9,6 +9,7 @@ approval for the live action. `test_workflow` runs the **draft** — check publi
 | --- | --- |
 | `node tests/n8n/moderation-queue-drain.test.mjs` | Drain decision logic against `moderation-queue-drain-pins/` (rate limit 429, quota mid-batch, attempts exhausted, permanent failures, unauthorized). Hide endpoint is never called. |
 | `node tests/n8n/t3-alert-routing.test.mjs` | Per-client alert routing from the real scheduler Code-node bodies (both exports). |
+| `node tests/n8n/ker66-post-search.test.mjs` | KER-66 post search: bracketed `-is:retweet -is:reply` query, 48 h / 7 d cadence, query chunking, reply catch-up window, empty-search placeholder. Applies `scripts/apply-ker66-cheaper-post-search.mjs` in memory to both scheduler exports. |
 | `node tests/n8n/t3-alert-routing-fixtures.test.mjs` | The three `tenancy-pins/` fixtures end to end through the prod scheduler export. |
 | `node tests/n8n/telegram-router-retry-guard.test.mjs` | `retryOnFail` is explicitly `false` on `Place Comment Order` / `Place Likes Order` in both routers (SMM `add` is non-idempotent — a retry is a second charged order). Run after any router edit or node typeVersion bump. |
 | `node tests/n8n/scheduled-post-native-sentiment.test.mjs` | Native-sentiment staging export shape. |

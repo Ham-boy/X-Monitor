@@ -14,14 +14,15 @@ production.
 - Environment: staging
 - Active: no
 - Local export: `workflows/staging/xmonitor-scheduled-post-tracking-staging.json`
-- Last observed live update: `2026-10-10T08:46Z` (draft `449eabf2-c73e-43f5-8270-61161b4d4839`; inactive by design, so there is no active version to match)
+- Last observed live update: `2026-11-15T14:47Z` (draft `e44ba401-cc83-4831-95dd-7f3f388da8dc`; inactive by design, so there is no active version to match)
 - Error workflow: `XMonitor - Staging Developer Error Alerts` (`CCzwnMyoy7UequuI`)
 
 > **Staging is slightly ahead of production.** Per-reply sentiment classification (see
 > [Per-Reply Sentiment Classification](#per-reply-sentiment-classification---2026-10-10))
 > was validated here and promoted to `Emb26wP77eFXgnVi` on 2026-10-10, together with
-> `Get Active Cheat Sheets`. What remains staging-only is reply media sentiment and the
-> cheat-sheet generator workflow. Validate changes here first, then promote, and remember
+> `Get Active Cheat Sheets`. What remains staging-only is the cheaper post search (KER-66,
+> 2026-11-15, [below](#cheaper-post-search---ker-66-2026-11-15-staging-only)), reply media
+> sentiment and the cheat-sheet generator workflow. Validate changes here first, then promote, and remember
 > production runs a **published version** - saving a draft there does not change live
 > behaviour until it is published.
 >
@@ -34,7 +35,11 @@ production.
 | Variable | Location | Current value | Meaning |
 | --- | --- | --- | --- |
 | Schedule cadence | `Schedule Trigger` | every `1` hour | Same cadence as production. |
-| Lookback window | `Build X API Query`, `DAYS_AGO` | `7` days | X search start time for **post discovery**. |
+| Post search, wide window | `Build X API Query`, `WIDE_WINDOW_DAYS` | `7` days | Full lookback for **post discovery**. Was `DAYS_AGO`. Since KER-66 it is searched only on a wide pass. |
+| Post search, narrow window | `Build X API Query`, `NARROW_WINDOW_HOURS` | `48` hours | Searched on every other pass. `Build Replies Query` carries the same constant; keep them in step. |
+| Wide pass cadence | `Build X API Query`, `WIDE_EVERY_HOURS` / `WIDE_TOLERANCE_MINUTES` | `6` hours / `30` minutes | A pass is wide when the last completed wide pass (`Run State` row `scheduled_post_tracking_wide_search`) is at least 5 h 30 min old, or missing, or the reply watermark is null. |
+| Post search filters | `Build X API Query`, `QUERY_SUFFIX` | `-is:retweet -is:reply` | Applied to the whole bracketed `from:` group. Approved by Hamdi 2026-11-15. |
+| Post query length ceiling | `Build X API Query`, `MAX_QUERY_CHARS` | `1000` | Same headroom as the replies query. The handle list is split into as many queries as it needs. |
 | Replies lookback | `Build Replies Query`, `LOOKBACK_DAYS` | `7` days | Only used on the first run, when no run state exists. |
 | Replies overlap | `Build Replies Query`, `OVERLAP_MINUTES` | `10` minutes | Subtracted from the watermark to tolerate X indexing lag. Duplicates are dropped by `reply_id`. |
 | Conversations per chunk | `Build Replies Query`, `MAX_CONVERSATIONS_PER_CHUNK` | `15` | Hard ceiling per replies query. |
@@ -54,6 +59,169 @@ production.
 | OpenAI model | `OpenAI Sentiment Model` (feeds `Classify Sentiment`) | `gpt-5.4-mini`, `temperature 0` | Must stay identical to production (`Analyze Sentiment with ChatGPT` there). Aligned 2026-08-24 (was `gpt-4o-mini`). |
 | Classification shape | `Build Analysis Plan` → `Classify Sentiment` | **one model call per new reply**, batches of `5`, `1000 ms` between batches, `retryOnFail` ×3, auto-fixing on | Since 2026-10-10. Production still sends every new reply in one batched JSON call. See [Per-Reply Sentiment Classification](#per-reply-sentiment-classification---2026-10-10). |
 | Post text in the prompt | `Build Analysis Plan`, `composeClassifierInput` | cut at `1000` chars | Same cap as IG - Monitor's caption. |
+
+## Cheaper Post Search - KER-66, 2026-11-15 (staging only)
+
+Victor's case, approved by Hamdi on 2026-11-15 and filed as
+[KER-66](https://linear.app/keryxpc/issue/KER-66). The hourly post search was the largest
+single line on the X bill: it returned every post, retweet and reply of every tracked account
+from the last 7 days on every pass, so each one was paid for up to 168 times. The measurement
+is in [`limits-and-capacity.md` section 1.5](../architecture/limits-and-capacity.md#15-post-search-measured-2026-11-15-ker-66).
+**Production (`Emb26wP77eFXgnVi`) is unchanged**; see
+[What a production promotion would change](#what-a-production-promotion-would-change).
+
+The whole change is one idempotent transform, `scripts/apply-ker66-cheaper-post-search.mjs`.
+It produced this staging edit, the offline test runs it against both exports, and a
+promotion is the same transform applied to production.
+
+### What changed
+
+| Node | Change |
+| --- | --- |
+| `Build X API Query` | Replaced (source: `scripts/ker66/build-x-api-query.js`). Query is `(from:a OR from:b) -is:retweet -is:reply`. Decides **wide** (7 days) or **narrow** (48 hours) from `Run State`. Splits the handle list into as many queries as the 1,000-character budget needs and emits one item per query. New output fields: `wide_search`, `search_window_hours`, `last_wide_search_at`, `query_chunk_index`, `query_chunk_count`. |
+| `Get posts of tracked users` | `options.batching` `batchSize 1`, `batchInterval 1100 ms`, the same pacing `Get Replies` uses, so several query chunks stay under X's 1 request/second. Nothing else: same fields, same `max_results=100`, same 10-page cap. |
+| `Get Run State` | Also ensures and returns the row `scheduled_post_tracking_wide_search` as `last_wide_search_at`. Still returns exactly one item. No migration: `Run State.key` is free text and the node upserts the row itself. |
+| `Advance Run State`, `Advance Run State (Quiet Pass)` | Take a second parameter, `$('Build X API Query').first().json.wide_search === true`, and on a wide pass move the wide-search row together with the reply watermark. They return `wide_search_marker_advanced` (0 or 1). Both still sit behind the same two "safe to advance" gates. |
+| `Build Replies Query` | On a wide pass, an already-collected post older than 46 hours is read from the **previous wide pass** (minus the 10-minute overlap) instead of from the hourly watermark. Such a chunk carries `wide_catch_up: true`. Everything else is unchanged. |
+| `Split Out Posts` | `alwaysOutputData: true`. |
+| `Filter Suppressed Posts` | Drops items with no `id`. When nothing is left (nothing returned, or every post suppressed) it emits one placeholder, `no_candidate_posts: true` with `reply_count -1`, which the reply-count filter is certain to discard. |
+| `Assess Quiet Outcome` | Second connection, to `If Fetch Truncated`. The node itself is unchanged. |
+| `Build Truncation Alert` | Message corrected: it used to say the run state had already moved past the unread replies, which stopped being true on 2026-08-25 when the writers were gated. |
+
+### The query
+
+X evaluates AND (a space) before OR, so `from:a OR from:b -is:retweet` would apply the
+negation to `from:b` only. The handles are therefore bracketed and the two negations sit
+outside the group. X's own guide says negated operators cannot be used alone and tells you not
+to negate a group; `(…) -is:retweet -is:reply` does neither.
+
+`-is:retweet` removes native retweets only; quote posts are still returned. `-is:reply` removes
+every reply by the account, **including a reply to its own post** (a thread continuation). X
+has no operator that keeps those while dropping replies to other people. In the 98 production
+runs measured there was no such post, and no retweet or reply had 10 or more replies.
+
+Query length: the whole string counts toward X's 1,024-character limit. Chunks are built by
+measuring the assembled string against 1,000, like the replies query. One query holds about 40
+handles; production's three use 64 characters.
+
+### The cadence
+
+Every pass searches the last **48 hours**. A pass searches the full **7 days** when the last
+*completed* 7-day search is at least 6 hours old (5 h 30 min, to absorb schedule jitter), when
+there is no such search on record, or when the reply watermark is null. A post is therefore
+read every hour for its first 48 hours and every six hours until day seven: 68 reads in its
+life instead of 168.
+
+The marker is state, not the clock (`hour % 6`), on purpose. A wide pass that fails, or stops
+on the page cap, does not move it, so the next hourly pass is wide again. A clock rule would
+wait another six hours.
+
+**Replies on older posts.** Between two wide passes a post older than 48 hours is not in the
+search result, so its replies are not requested at all, while the hourly watermark keeps
+moving. If the next wide pass read them from the hourly watermark, everything that arrived in
+between would be skipped permanently. `Build Replies Query` therefore reads those posts from
+the previous wide pass. "Older" starts at 46 hours, two hours below the narrow window, so a
+post that was still in the narrow search an hour ago is over-read, never under-read; duplicates
+drop by `reply_id` as they always have.
+
+**Worst-case delay for a post older than two days: 6 hours, up from 1 hour.** That covers
+both ways such a post can alert: crossing its client's `min_replies` for the first time, and
+new replies pushing it over the negative threshold. If a wide pass fails the delay grows by one
+hour per failed pass, not by six. Posts younger than 48 hours are unaffected.
+
+Also changed for older posts: `Refresh Post Metrics` updates their stored counts every six
+hours rather than hourly, because it runs on whatever the search returned.
+
+### An empty search is now a quiet pass
+
+Found while testing, and needed for the 48-hour window to be safe. When the post search
+returned nothing, `Split Out Posts` emitted no items, nothing downstream ran, and neither
+marker moved; the "posts search returned nothing" row in the table under
+[Rewired 2026-08-25](#rewired-2026-08-25--quiet-passes-and-truncated-ones) was unreachable
+(staging execution `65775`, last node `Split Out Posts`). The same happened when every
+returned post was snoozed or ignored. With a 7-day window that was rare. With a 48-hour window
+it is the ordinary outcome for accounts that have not posted in two days. Both shapes now reach
+`Assess Quiet Outcome` (`NO_POSTS_RETURNED` or `NO_QUALIFYING_POSTS`) and advance the run
+state. Production has the same gap today; there it only costs re-reads.
+
+### Page cap on the post search
+
+A post search that stopped at 10 pages already held the watermark on both paths, and raised
+`SEARCH_PAGE_CAP_REACHED` when replies were fetched. On a quiet pass it held the watermark and
+told nobody. `Assess Quiet Outcome` now also feeds `If Fetch Truncated`, so the developer alert
+is raised on every path. The cap is per query chunk and per window: 1,000 posts.
+
+### Validation
+
+Draft `e44ba401-cc83-4831-95dd-7f3f388da8dc`, `active: false`, `activeVersionId: null`
+(inactive by design; nothing to publish). Live was re-read after the edit and matches the
+transform node for node.
+
+Offline, no access needed: `node tests/n8n/ker66-post-search.test.mjs`, 24 tests against each
+export (48 in all), covering the bracketed query, the wide/narrow decision at every hour of
+the cycle, jitter, a wide pass that did not complete, chunking of 120 handles, the three reply
+windows, the placeholder, and the graph.
+
+Pinned, `./run-pins.sh`: **26 of 26 pass**, executions `65779` to `65806`. New or changed:
+
+| Fixture | Execution | Proves |
+| --- | --- | --- |
+| `watermark-narrow-pass-holds-wide-marker` | `65796` | 3 h after a wide pass: 48-hour window, exact query text, reply watermark advanced, wide marker untouched |
+| `watermark-wide-pass-advances-wide-marker` | `65806` | 5 h 59 m 59 s after: 7-day window, the older post read from `02:50:01` and the recent one from `07:50:00`, both markers advanced |
+| `watermark-no-posts-returned` | `65797` | An empty search ends as `NO_POSTS_RETURNED` and advances |
+| `post-search-query-chunking` | `65787` | 60 handles become two queries |
+| `watermark-truncated-posts-holds` | `65801` | Now also asserts `SEARCH_PAGE_CAP_REACHED` on the quiet path; both markers held |
+
+The runner snapshots, asserts and restores the wide-search row as well as the watermark.
+
+Live, on real data. Staging's own two accounts had not posted in 7 days (baseline `65775`
+returned 0 posts on the old query), so `michelhelou_lb` and `camille_mourani` were added to
+staging `Tracked Users` for three runs and removed afterwards.
+
+| Execution | Pass | Posts returned | Reached the kept branch of `Keep Posts With 10+ Replies` |
+| --- | --- | --- | --- |
+| production `65761`, 14:00 UTC, old query, same accounts | 7 days | **9** (6 posts, 2 retweets, 1 reply) | the only post with 10+ replies, `2120142711923580940` (27), is `Ignored` in production and is filtered before this node |
+| `65807`, 14:57 | wide, first pass | **6**, the same six posts | `2120142711923580940` (27 replies) |
+| `65808`, 14:58 | narrow | **0** (the newest post was 52.7 h old) | none; ended `NO_POSTS_RETURNED`, watermark advanced, `wide_search_marker_advanced 0` |
+| `65809`, 14:59 | wide, marker set back 6 h 5 min | **6** | same post; replies read from `08:43:59`, the marker minus 10 minutes, `wide_catch_up true`; 0 new replies |
+
+`65807` backfilled 28 replies, scored and stored them and sent one staging alert (message
+`236`, `XmonitorBetaBot` to chat `8677383067`). X accepted the query on all three runs.
+Afterwards the two tracked users, the post and its 28 replies were deleted and `Run State`
+restored: `Posts` 7, `Replies` 398, `Tracked Users` 4, watermark
+`2026-10-17 22:31:22.165+00`, all as before. The one thing left behind is the new row
+`scheduled_post_tracking_wide_search`, null.
+
+### What a production promotion would change
+
+Not done. It needs Hamdi's explicit approval.
+
+1. The ten edits in the table above, applied to `Emb26wP77eFXgnVi` by the transform. Staging
+   and production have the same 62 nodes and the same connections, and the transform touches
+   no credential, id, chat id, schedule, threshold or activation state. The offline test
+   already runs it against the production export.
+2. One new row in production `Run State`, `scheduled_post_tracking_wide_search`, created by
+   `Get Run State` on the first pass. No migration.
+3. The first pass after publishing is wide (no marker yet). From then on, 48 hours hourly and
+   7 days every sixth pass.
+4. What the client would notice: retweets and the accounts' replies stop being candidates
+   (they cannot alert even with 10+ replies); a post older than two days alerts up to 6 hours
+   later than today, not 1; nothing else about alerting, recipients, thresholds or message
+   text changes.
+5. Expected effect on production's numbers as measured: 8.85 posts per pass down to about
+   2.75, roughly $32 down to $10 per 30 days.
+6. Steps: diff, apply, run the pinned suite with `XMONITOR_WORKFLOW_ID=Emb26wP77eFXgnVi`
+   (the watermark fixtures write production `Run State` and restore it), publish, confirm
+   `versionId == activeVersionId`, then read the next two scheduled executions.
+
+### Not done
+
+- Production promotion.
+- Posts older than 48 hours that already qualified could keep hourly reply checks at no post
+  cost by taking their conversation ids from `Posts` instead of from the search. Not built:
+  it changes where post data comes from, and Hamdi accepted a slower check on older posts.
+- A self-reply (thread continuation) by a tracked account is no longer a candidate. If that
+  matters, the query needs one clause per account.
 
 ## Incremental Reply Fetching
 

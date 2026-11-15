@@ -65,6 +65,30 @@ sql() { # sql <statement, already escaped for a JSON string literal>
 RS_TABLE='public.\"Run State\"'
 RS_KEY="where key = 'scheduled_post_tracking';"
 
+# KER-66: the last completed 7-day post search has its own row. The same two writers
+# advance it, on a wide pass only, so the watermark fixtures write it for real too.
+WIDE_KEY="where key = 'scheduled_post_tracking_wide_search';"
+
+read_wide_marker() {
+  sql "select last_successful_run_at from $RS_TABLE $WIDE_KEY" \
+    | grep -oE '"last_successful_run_at":(null|"[^"]*")' | cut -d: -f2-
+}
+
+restore_wide_marker() { # restore_wide_marker <value as printed by read_wide_marker>
+  local v="$1" expr
+  if [ "$v" = "null" ]; then
+    expr="null"
+  else
+    expr="'$(printf '%s' "$v" | tr -d '"')'::timestamptz"
+  fi
+  sql "update $RS_TABLE set last_successful_run_at = $expr $WIDE_KEY" > /dev/null
+}
+
+# The row is normally created by Get Run State, which every fixture pins.
+ensure_wide_marker_row() {
+  sql "insert into $RS_TABLE (key, last_successful_run_at) values ('scheduled_post_tracking_wide_search', null) on conflict (key) do nothing" > /dev/null
+}
+
 read_watermark() {
   sql "select last_successful_run_at from $RS_TABLE $RS_KEY" \
     | grep -oE '"last_successful_run_at":(null|"[^"]*")' | cut -d: -f2-
@@ -130,6 +154,35 @@ expectations() {
       echo 'developer alert raised|SEARCH_PAGE_CAP_REACHED'
       echo 'main branch still completes|"new_reply_count":3'
       ;;
+    watermark-narrow-pass-holds-wide-marker)
+      # KER-66. Three hours after the last 7-day search: this pass reads 48 hours only.
+      echo 'narrow pass|"wide_search":false'
+      echo '48-hour window|"search_window_hours":48'
+      echo 'filters apply to the whole bracketed group|"query":"\(from:RebelHam_ OR from:HamSadkaev\) -is:retweet -is:reply"'
+      echo 'quiet pass|"quiet_reason":"NO_QUALIFYING_POSTS"'
+      echo 'wide marker not written|"wide_search_marker_advanced":0'
+      ;;
+    watermark-wide-pass-advances-wide-marker)
+      # KER-66. 5h59m59s after the last 7-day search still counts as six hours.
+      echo 'wide pass|"wide_search":true'
+      echo '7-day window|"search_window_hours":168'
+      echo 'recent post read from the hourly watermark|"start_time":"2026-11-10T07:50:00.000Z"'
+      echo 'older post read from the previous wide pass|"start_time":"2026-11-10T02:50:01.000Z"'
+      echo 'older post flagged as catch-up|"wide_catch_up":true'
+      echo 'nothing new to score|"has_new_replies":false'
+      echo 'wide marker written|"wide_search_marker_advanced":1'
+      ;;
+    watermark-no-posts-returned)
+      # KER-66. Before this the run stopped at Split Out Posts and no marker moved.
+      echo 'placeholder reaches the reply-count filter|"no_candidate_posts":true'
+      echo 'ends as a quiet pass|"quiet_reason":"NO_POSTS_RETURNED"'
+      echo 'not truncated|"posts_truncated":false'
+      ;;
+    post-search-query-chunking)
+      echo '60 handles split into two queries|"query_chunk_count":2'
+      echo 'second chunk built|"query_chunk_index":1'
+      echo 'run completes as a quiet pass|"quiet_reason":"NO_QUALIFYING_POSTS"'
+      ;;
     watermark-all-posts-discarded)
       echo 'posts did reach the filter and were all discarded|"2092579307088490998"'
       echo 'no post cleared the 10-reply filter|"quiet_reason":"NO_QUALIFYING_POSTS"'
@@ -154,6 +207,8 @@ expectations() {
     watermark-truncated-posts-holds)
       echo 'posts search hit the page cap|"posts_truncated":true'
       echo 'flagged as truncated|"fetch_truncated":true'
+      # KER-66: the quiet path used to hold the marker and tell nobody.
+      echo 'developer alert raised|SEARCH_PAGE_CAP_REACHED'
       ;;
     watermark-truncated-replies-quiet-holds)
       echo 'replies search hit the page cap|"replies_truncated":true'
@@ -216,6 +271,23 @@ watermark_expectation() {
     watermark-truncated-replies-quiet-holds)    echo 'hold' ;;
     watermark-truncated-replies-analyzed-holds) echo 'hold' ;;
     watermark-classification-failed-holds)      echo 'hold' ;;
+    watermark-narrow-pass-holds-wide-marker)    echo 'advance 2026-11-10 09:00:00+00' ;;
+    watermark-wide-pass-advances-wide-marker)   echo 'advance 2026-11-10 09:00:00+00' ;;
+    watermark-no-posts-returned)                echo 'advance 2026-08-25 09:45:00+00' ;;
+  esac
+}
+
+# What each watermark fixture must do to the wide-search marker (KER-66). A fixture that
+# pins no watermark is a first pass, which is always wide, so most of them advance it.
+wide_marker_expectation() {
+  case "$1" in
+    watermark-all-posts-discarded)              echo 'advance 2026-08-25 09:20:00+00' ;;
+    watermark-no-qualifying-posts)              echo 'advance 2026-08-25 09:00:00+00' ;;
+    watermark-quiet-replies-advances)           echo 'advance 2026-08-25 09:35:00+00' ;;
+    watermark-analyzed-advances)                echo 'advance 2026-08-25 09:55:00+00' ;;
+    watermark-wide-pass-advances-wide-marker)   echo 'advance 2026-11-10 09:00:00+00' ;;
+    watermark-no-posts-returned)                echo 'advance 2026-08-25 09:45:00+00' ;;
+    watermark-*)                                echo 'hold' ;;   # no search, a narrow pass, or an incomplete one
   esac
 }
 
@@ -269,6 +341,17 @@ else
   echo "publish check: $WORKFLOW_ID is inactive (manual-execution only) - not applicable"
 fi
 
+# KER-66 ships to staging first. Until production is promoted its writers never touch the
+# wide-search row, so only assert on it where the target workflow knows about it.
+wide_aware=0
+if grep -qF 'scheduled_post_tracking_wide_search' "$TMP/wf-details.json"; then
+  wide_aware=1
+  ensure_wide_marker_row
+  echo "wide-search marker: asserted (target workflow carries the KER-66 cadence)"
+else
+  echo "wide-search marker: not asserted (target workflow predates KER-66)"
+fi
+
 filter="${1:-}"
 pass=0; fail=0; failed_names=""; skipped_names=""
 
@@ -304,6 +387,16 @@ for f in "$HERE"/*.pinData.json; do
     fi
     echo "  Run State before: $wm_before"
   fi
+  wide_exp=""; wide_before=""
+  if [ -n "$wm_exp" ] && [ "$wide_aware" -eq 1 ]; then
+    wide_exp="$(wide_marker_expectation "$name")"
+    wide_before="$(read_wide_marker)"
+    if [ -z "$wide_before" ]; then
+      echo "  FAIL: could not read the wide-search marker before the run"
+      fail=$((fail+1)); failed_names="$failed_names $name"; continue
+    fi
+    echo "  wide marker before: $wide_before"
+  fi
 
   { printf '{"workflowId":"%s","timeout":120,"pinData":' "$WORKFLOW_ID"; cat "$f"; printf '}'; } > "$TMP/args.json"
   exec_id="$(mcp test_workflow "$TMP/args.json" | grep -oE 'executionId[^0-9]*[0-9]+' | grep -oE '[0-9]+$' | head -1)"
@@ -311,6 +404,7 @@ for f in "$HERE"/*.pinData.json; do
   if [ -z "$exec_id" ]; then
     echo "  FAIL: no execution id returned"
     [ -n "$wm_exp" ] && restore_watermark "$wm_before"
+    [ -n "$wide_exp" ] && restore_wide_marker "$wide_before"
     fail=$((fail+1)); failed_names="$failed_names $name"; continue
   fi
   echo "  execution $exec_id"
@@ -357,6 +451,35 @@ for f in "$HERE"/*.pinData.json; do
         echo "  ok   - watermark advanced to the run's start time ($want)"
       else
         echo "  FAIL - watermark did not advance; wanted $want, stored $wm_after"
+        local_fail=1
+      fi
+    fi
+
+    if [ -n "$wide_exp" ]; then
+      wide_after="$(read_wide_marker)"
+      echo "  wide marker after:  $wide_after"
+      if [ "$wide_exp" = "hold" ]; then
+        if [ "$wide_after" = "$wide_before" ]; then
+          echo "  ok   - wide-search marker held"
+        else
+          echo "  FAIL - wide-search marker MOVED: $wide_before -> $wide_after"
+          echo "         posts older than 48h would go unread for another six hours"
+          local_fail=1
+        fi
+      else
+        want_wide="${wide_exp#advance }"
+        if printf '%s' "$wide_after" | grep -qF -- "$want_wide"; then
+          echo "  ok   - wide-search marker advanced to the start time of the run ($want_wide)"
+        else
+          echo "  FAIL - wide-search marker did not advance; wanted $want_wide, stored $wide_after"
+          local_fail=1
+        fi
+      fi
+      restore_wide_marker "$wide_before"
+      if [ "$(read_wide_marker)" = "$wide_before" ]; then
+        echo "  restored wide marker to $wide_before"
+      else
+        echo "  FAIL - could not restore the wide-search marker (was $wide_before)"
         local_fail=1
       fi
     fi
